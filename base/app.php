@@ -59,9 +59,13 @@ $metricsMiddleware[] = new PrinterMiddleware(new PrometheusPrinter(), new Metric
 ));
 
 $middleware[] = function (ServerRequestInterface $request, callable $next): PromiseInterface {
-    return resolve($next($request))->then(function (ResponseInterface $response): ResponseInterface {
-        return $response->withStatus(404);
-    });
+    if ($request->getUri()->getPath() === '/') {
+        return resolve($next($request))->then(function (ResponseInterface $response): ResponseInterface {
+            return $response->withStatus(404);
+        });
+    }
+
+    return resolve($next($request));
 };
 $middleware[] = new RewriteMiddleware([
     '/' => '/index.html',
