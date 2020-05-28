@@ -1,0 +1,161 @@
+name: Continuous Integration
+env:
+  DOCKER_IMAGE: wyrihaximusnet/default-backend
+on:
+  push:
+  schedule:
+    - cron:  '0 0 * * 0'
+jobs:
+  generate-image-strategy:
+    name: Generate Image Strategy
+    runs-on: ubuntu-latest
+    outputs:
+      images: ${{ steps.generate-image-strategy.outputs.images }}
+    steps:
+      - uses: actions/checkout@v1
+      - id: generate-image-strategy
+        name: Generate Jobs
+        run: |
+          ls images | jq -csR '. + "random" | split("\n")' > images.list
+          cat images.list
+          echo "::set-output name=images::$(cat images.list)"
+  lint-dockerfile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1
+      - name: Lint Dockerfile
+        uses: docker://hadolint/hadolint:latest-debian
+        with:
+          entrypoint: hadolint
+          args: ./base/Dockerfile
+  build-docker-image:
+    strategy:
+      matrix:
+        image: ${{ fromJson(needs.generate-image-strategy.outputs.images) }}
+    needs:
+      - generate-image-strategy
+      - lint-dockerfile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1
+      - run: cp -R $(echo -e "./images/$(ls ./images/ | shuf -n 1)") ./images/random
+        if: matrix.image == 'random'
+      - run: cp ./images/${{ matrix.image }}/* ./base/public/ -Rf
+      - run: docker image build --build-arg BUILD_DATE=`date -u +"%Y-%m-%dT%H:%M:%SZ"` --build-arg VCS_REF=`git rev-parse --short HEAD` -t "${DOCKER_IMAGE}:${{ matrix.image }}" --no-cache --build-arg VERSION=$TAG_VERSION ./base/
+      - run: mkdir ./docker-image
+      - run: docker save "${DOCKER_IMAGE}:${{ matrix.image }}" -o ./docker-image/docker_image.tar
+      - uses: actions/upload-artifact@master
+        with:
+          name: docker-image-${{ matrix.image }}
+          path: ./docker-image
+  scan-vulnerability:
+    strategy:
+      matrix:
+        image: ${{ fromJson(needs.generate-image-strategy.outputs.images) }}
+    needs:
+      - generate-image-strategy
+      - build-docker-image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1
+      - name: Install clair-scanner
+        run: |
+          sudo curl -L https://github.com/arminc/clair-scanner/releases/download/v8/clair-scanner_linux_amd64 -o /usr/local/bin/clair-scanner
+          sudo chmod +x /usr/local/bin/clair-scanner
+      - uses: actions/download-artifact@master
+        with:
+          name: docker-image-${{ matrix.image }}
+          path: ./docker-image
+      - run: docker load --input ./docker-image/docker_image.tar
+      - run: rm -Rf ./docker-image/
+      - run: mkdir -p "./clair/${DOCKER_IMAGE}"
+      - run: docker-compose -f .docker/security/docker-compose.yml -p clair-ci up -d
+      #      - run: RETRIES=0 && while ! wget -T 10 -q -O /dev/null http://localhost:6060/v1/namespaces ; do sleep 1 ; echo -n "." ; if [ $${RETRIES} -eq 10 ] ; then echo " Timeout, aborting." ; exit 1 ; fi ; RETRIES=$$(($${RETRIES}+1)) ; done
+      - run: sleep 10
+      - run: echo -e "${DOCKER_IMAGE}:${{ matrix.image }}" | xargs -I % sh -c 'clair-scanner --ip 172.17.0.1 -r "./clair/%.json" -l ./clair/clair.log % || (echo "% is vulnerable" && exit 1)'
+      - run: docker-compose -f .docker/security/docker-compose.yml -p clair-ci down
+  tests:
+    needs:
+      - generate-image-strategy
+      - scan-vulnerability
+    strategy:
+      matrix:
+        image: ${{ fromJson(needs.generate-image-strategy.outputs.images) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1
+      - uses: actions/download-artifact@master
+        with:
+          name: docker-image-${{ matrix.image }}
+          path: ./docker-image
+      - run: docker load --input ./docker-image/docker_image.tar
+      - name: Start image ${{ matrix.image }}
+        run: docker run -d --rm -v ${GITHUB_WORKSPACE}/${REDIRECT_CONFIG_FILE}:/etc/redirect/config.yaml ${DOCKER_IMAGE}:${{ matrix.image }}
+        env:
+          IMAGE: ${{ steps.build.outputs.tag }}
+          REDIRECT_CONFIG_FILE: tests/rules/${{ matrix.rules }}/config.yaml
+      - name: Get running image ID
+        id: ps
+        run: printf "::set-output name=id::%s" $(docker ps --format "{{.ID}}")
+        env:
+          IMAGE: ${{ steps.build.outputs.tag }}
+      - name: Get running image IP
+        id: inspect
+        run: printf "::set-output name=ip::%s" $(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' ${IMAGE_ID})
+        env:
+          IMAGE_ID: ${{ steps.ps.outputs.id }}
+      - name: Sleep 13 seconds before attempting to connect
+        run: sleep 13
+      - name: Test that redirect port is reachable
+        run: curl http://${IMAGE_IP}:6969/
+        env:
+          IMAGE_IP: ${{ steps.inspect.outputs.ip }}
+      - name: Test that metrics port is reachable
+        run: curl http://${IMAGE_IP}:9696/
+        env:
+          IMAGE_IP: ${{ steps.inspect.outputs.ip }}
+      - name: Run unit tests ${{ matrix.rules }} against ${{ matrix.image }}
+        run: docker run -i loadimpact/k6 run -u 1000 -d 10s -e IMAGE_IP=${IMAGE_IP} -< ${SCRIPT_FILEIMAGE}
+        env:
+          IMAGE: ${{ matrix.image }}
+          IMAGE_IP: ${{ steps.inspect.outputs.ip }}
+          IMAGE_ID: ${{ steps.ps.outputs.id }}
+          SCRIPT_FILEIMAGE: ./tests/404.js
+      - name: Docker logs for image ${{ matrix.image }}
+        run: docker logs ${IMAGE_ID}
+        env:
+          IMAGE_ID: ${{ steps.ps.outputs.id }}
+  push-image:
+    strategy:
+      matrix:
+        image: ${{ fromJson(needs.generate-image-strategy.outputs.images) }}
+    needs:
+      - generate-image-strategy
+      - tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@master
+        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
+        with:
+          name: docker-image-${{ matrix.image }}
+          path: ./docker-image
+      - run: docker load --input ./docker-image/docker_image.tar
+        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
+      - run: rm -Rf ./docker-image/
+        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
+      - name: Login to Docker Hub
+        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
+        run: |
+          echo "${{ secrets.HUB_PASSCODE }}" | \
+          docker login \
+            --username "${{ secrets.HUB_USERNAME }}" \
+            --password-stdin
+      - name: Docker info
+        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
+        run: docker info
+      - name: Echo full tag
+        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
+        run: echo -e "${DOCKER_IMAGE}:${{ matrix.image }}"
+      - name: Push image to Docker Hub
+        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
+        run: docker push "${DOCKER_IMAGE}:${{ matrix.image }}"
