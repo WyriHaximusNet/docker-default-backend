@@ -3,8 +3,7 @@ env:
   DOCKER_IMAGE: wyrihaximusnet/default-backend
 on:
   push:
-  schedule:
-    - cron:  '0 0 * * 0'
+  pull_request:
 jobs:
   generate-image-strategy:
     name: Generate Image Strategy
@@ -16,9 +15,9 @@ jobs:
       - id: generate-image-strategy
         name: Generate Jobs
         run: |
-          ls images | jq -csR '. + "random" | split("\n")' > images.list
+          ls images | jq -csR '. | rtrimstr("\n") | split("\n")' > images.list
           cat images.list
-          echo "::set-output name=images::$(cat images.list)"
+          echo "::set-output name=images::$(shuf -n 1 images.list)"
   lint-dockerfile:
     runs-on: ubuntu-latest
     steps:
