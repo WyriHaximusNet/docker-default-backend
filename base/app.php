@@ -28,6 +28,7 @@ use const WyriHaximus\FakePHPVersion\CURRENT;
 
 require 'vendor/autoload.php';
 
+$indexHtml = \Safe\file_get_contents(__DIR__ . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . 'index.html');
 $loop = new LoopDecorator(Factory::create());
 
 $metrics = [];
@@ -58,29 +59,13 @@ $metricsMiddleware[] = new PrinterMiddleware(new PrometheusPrinter(), new Metric
     )
 ));
 
-$middleware[] = function (ServerRequestInterface $request, callable $next): PromiseInterface {
-    if ($request->getUri()->getPath() === '/') {
-        return resolve($next($request))->then(function (ResponseInterface $response): ResponseInterface {
-            return $response->withStatus(404);
-        });
-    }
-
-    return resolve($next($request));
-};
-$middleware[] = new RewriteMiddleware([
-    '/' => '/index.html',
-]);
-$middleware[] = new WebrootPreloadMiddleware(
-    __DIR__ . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR,
-    new NullLogger(),
-    new ArrayCache()
-);
-$middleware[] = function (ServerRequestInterface $request): ResponseInterface {
+$middleware[] = function (ServerRequestInterface $request) use ($indexHtml): ResponseInterface {
     return new Response(
-        301,
+        404,
         [
-            'Location' => '/',
-        ]
+            'Content-Type' => 'text/html',
+        ],
+        $indexHtml
     );
 };
 
