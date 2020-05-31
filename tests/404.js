@@ -19,13 +19,6 @@ export default function() {
         });
         errorRate.add(!result);
     });
-    group("notFound-index.html", function() {
-        let res = http.get(`http://${__ENV.IMAGE_IP}:6969/index.html`);
-        let result = check(res, {
-            "is status 200": (r) => r.status === 200,
-        });
-        errorRate.add(!result);
-    });
     group("metrics", function() {
         let res = http.get(`http://${__ENV.IMAGE_IP}:9696/`);
         let result = check(res, {
