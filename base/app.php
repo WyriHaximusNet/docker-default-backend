@@ -92,10 +92,13 @@ $metricsSocket->on('error', static function (Throwable $throwable): void {
 $metricsServer->listen($metricsSocket);
 
 $signalHandler = function () use (&$signalHandler, $socket, $metricsSocket, $loop) {
+    echo 'Caught signal', PHP_EOL;
     $loop->removeSignal(SIGINT, $signalHandler);
     $loop->removeSignal(SIGTERM, $signalHandler);
     $socket->close();
     $metricsSocket->close();
+    echo 'Closed and stopped everything', PHP_EOL;
+    $loop->stop();
 };
 
 $loop->addSignal(SIGINT, $signalHandler);
