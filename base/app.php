@@ -1,10 +1,10 @@
 <?php
 
 use Psr\Http\Message\ResponseInterface;
-use Psr\Log\NullLogger;
-use React\Cache\ArrayCache;
+use Psr\Http\Message\ServerRequestInterface;
 use React\EventLoop\Factory;
-use React\Promise\PromiseInterface;
+use React\Http\Message\Response;
+use React\Http\Server as HttpServer;
 use ReactInspector\Collector\Merger\CollectorMergerCollector;
 use ReactInspector\EventLoop\LoopCollector;
 use ReactInspector\EventLoop\LoopDecorator;
@@ -14,16 +14,9 @@ use ReactInspector\MemoryUsage\MemoryUsageCollector;
 use ReactInspector\Metrics;
 use ReactInspector\Printer\Prometheus\PrometheusPrinter;
 use ReactInspector\Stream\IOCollector;
-use ReactInspector\Tag;
-use ReactInspector\Tags;
 use Symfony\Component\Yaml\Yaml;
-use Psr\Http\Message\ServerRequestInterface;
-use React\Http\Response;
-use React\Http\Server as HttpServer;
-use WyriHaximus\React\Http\Middleware\RewriteMiddleware;
-use WyriHaximus\React\Http\Middleware\WebrootPreloadMiddleware;
+use WyriHaximus\React\Http\Middleware\Header;
 use WyriHaximus\React\Http\Middleware\WithHeadersMiddleware;
-use function React\Promise\resolve;
 use const WyriHaximus\FakePHPVersion\CURRENT;
 
 require 'vendor/autoload.php';
@@ -35,10 +28,10 @@ $metrics = [];
 $middleware = [];
 $metricsMiddleware = [];
 
-$extraHeaders = new WithHeadersMiddleware([
-    'Server' => 'wyrihaximusnet/redirect (https://hub.docker.com/r/wyrihaximusnet/default-backend)',
-    'X-Powered-By' => 'PHP/' . CURRENT,
-]);
+$extraHeaders = new WithHeadersMiddleware(
+    new Header('Server', 'wyrihaximusnet/redirect (https://hub.docker.com/r/wyrihaximusnet/default-backend)'),
+    new Header('X-Powered-By', 'PHP/' . CURRENT),
+);
 
 $middleware[] = $extraHeaders;
 $metricsMiddleware[] = $extraHeaders;
@@ -69,7 +62,7 @@ $middleware[] = function (ServerRequestInterface $request) use ($indexHtml): Res
     );
 };
 
-$server = new HttpServer($middleware);
+$server = new HttpServer($loop, ...$middleware);
 $server->on('error', static function (Throwable $throwable): void {
     echo $throwable, PHP_EOL;
 });
@@ -80,7 +73,7 @@ $socket->on('error', static function (Throwable $throwable): void {
 });
 $server->listen($socket);
 
-$metricsServer = new HttpServer($metricsMiddleware);
+$metricsServer = new HttpServer($loop, ...$metricsMiddleware);
 $metricsServer->on('error', static function (Throwable $throwable): void {
     echo $throwable, PHP_EOL;
 });
