@@ -161,9 +161,9 @@ jobs:
       - name: Login to ${{ matrix.registry }}
         if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
         run: |
-          echo "${{ secrets.HUB_PASSCODE }}" | \
+          echo "${{ secrets.DOCKER_PASSWORD }}" | \
           docker login ${{ matrix.registry }} \
-            --username "${{ secrets.HUB_USERNAME }}" \
+            --username "${{ secrets.DOCKER_USER }}" \
             --password-stdin
         env:
           DOCKER_USER: ${{ secrets.HUB_USERNAME }}
