@@ -1,4 +1,4 @@
-FROM wyrihaximusnet/php:7.4-zts-alpine3.11-dev AS install-dependencies
+FROM wyrihaximusnet/php:7.4-zts-alpine3.13-dev AS install-dependencies
 
 WORKDIR /opt/app
 USER root
@@ -8,7 +8,7 @@ USER app
 COPY ./composer.* /opt/app/
 RUN composer install --ansi --no-interaction --prefer-dist --no-dev -o
 
-FROM wyrihaximusnet/php:7.4-zts-alpine3.11
+FROM wyrihaximusnet/php:7.4-zts-alpine3.13
 
 EXPOSE 6969
 EXPOSE 9696
