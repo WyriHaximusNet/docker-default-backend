@@ -92,10 +92,9 @@ jobs:
           path: ./docker-image
       - run: docker load --input ./docker-image/docker_image.tar
       - name: Start image ${{ matrix.image }}
-        run: docker run -d --rm -v ${GITHUB_WORKSPACE}/${REDIRECT_CONFIG_FILE}:/etc/redirect/config.yaml ${DOCKER_IMAGE}:${{ matrix.image }}
+        run: docker run -d --rm ${DOCKER_IMAGE}:${{ matrix.image }}
         env:
           IMAGE: ${{ steps.build.outputs.tag }}
-          REDIRECT_CONFIG_FILE: tests/rules/${{ matrix.rules }}/config.yaml
       - name: Get running image ID
         id: ps
         run: printf "::set-output name=id::%s" $(docker ps --format "{{.ID}}")
@@ -108,7 +107,7 @@ jobs:
           IMAGE_ID: ${{ steps.ps.outputs.id }}
       - name: Sleep 13 seconds before attempting to connect
         run: sleep 13
-      - name: Test that redirect port is reachable
+      - name: Test that default backend port is reachable
         run: curl http://${IMAGE_IP}:6969/
         env:
           IMAGE_IP: ${{ steps.inspect.outputs.ip }}
