@@ -128,47 +128,33 @@ jobs:
         run: docker logs ${IMAGE_ID}
         env:
           IMAGE_ID: ${{ steps.ps.outputs.id }}
-  push-image:
-    name: Push ${{ matrix.image }} to ${{ matrix.registry }}
+  build-and-push-all-archs:
+    name: Building and Pushing "${{ matrix.image }}" to ${{ matrix.registry }} for all additional archs
+    if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
     strategy:
-      fail-fast: false
       matrix:
         image: ${{ fromJson(needs.generate-image-strategy.outputs.images) }}
         registry: ${{ fromJson(needs.registry-matrix.outputs.registry) }}
     needs:
       - generate-image-strategy
-      - tests
       - registry-matrix
+      - lint-dockerfile
+      - tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@master
-        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
+      - uses: actions/checkout@v2
+      - name: Set up Docker Buildx
+        uses: crazy-max/ghaction-docker-buildx@v3
         with:
-          name: docker-image-${{ matrix.image }}
-          path: ./docker-image
-      - run: docker load --input ./docker-image/docker_image.tar
-        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
-      - run: rm -Rf ./docker-image/
-        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
+          buildx-version: latest
+          qemu-version: latest
       - name: Login to ${{ matrix.registry }}
-        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
         run: |
-          echo "${{ env.DOCKER_PASSWORD }}" | \
-          docker login ${{ matrix.registry }} \
-            --username "${{ env.DOCKER_USER }}" \
-            --password-stdin
+          docker login ${{ matrix.registry }} --username $DOCKER_USER --password $DOCKER_PASSWORD
         env:
           DOCKER_USER: ${{ secrets.HUB_USERNAME }}
           DOCKER_PASSWORD: ${{ secrets[fromJson(env.DOCKER_IMAGE_REGISTRIES_SECRET_MAPPING)[matrix.registry]] }}
-      - name: Docker info
-        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
-        run: docker info
-      - name: Echo full tag
-        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
-        run: docker tag ${DOCKER_IMAGE}:${{ matrix.image }} ${{ matrix.registry }}/${DOCKER_IMAGE}:${{ matrix.image }}
-      - name: Echo full tag
-        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
-        run: echo -e "${{ matrix.registry }}/${DOCKER_IMAGE}:${{ matrix.image }}"
-      - name: Push image to Docker Hub
-        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
-        run: docker push "${{ matrix.registry }}/${DOCKER_IMAGE}:${{ matrix.image }}"
+      - run: cp -R $(echo -e "./images/$(ls ./images/ | shuf -n 1)") ./images/random
+        if: matrix.image == 'random'
+      - run: cp ./images/${{ matrix.image }}/* ./base/public/ -Rf
+      - run: docker buildx build --platform "linux/amd64,linux/arm64,linux/arm/v7" --push --build-arg BUILD_DATE=`date -u +"%Y-%m-%dT%H:%M:%SZ"` --build-arg VCS_REF=`git rev-parse --short HEAD` -t "${{ matrix.registry }}/${DOCKER_IMAGE}:${{ matrix.image }}" --no-cache --build-arg VERSION=$TAG_VERSION ./base/
