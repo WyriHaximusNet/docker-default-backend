@@ -12,7 +12,7 @@ jobs:
     outputs:
       registry: ${{ steps.registry-matrix.outputs.registry }}
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v2
       - id: registry-matrix
         name: Extract registries from registry secret mapping
         run: |
@@ -20,7 +20,7 @@ jobs:
   lint-dockerfile:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v2
       - name: Lint Dockerfile
         uses: docker://hadolint/hadolint:latest-debian
         with:
@@ -29,61 +29,28 @@ jobs:
   build-docker-image:
     needs:
       - lint-dockerfile
+      - registry-matrix
+    strategy:
+      matrix:
+        registry: ${{ fromJson(needs.registry-matrix.outputs.registry) }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v2
       - run: echo "::set-output name=image::$(ls ./images/ | shuf -n 1)"
         id: image
       - run: sed -i "s/random/${IMAGE}/g" ./random/Dockerfile
         env:
           IMAGE: ${{ steps.image.outputs.image }}
       - run: cat ./random/Dockerfile
-      - run: docker image build --build-arg BUILD_DATE=`date -u +"%Y-%m-%dT%H:%M:%SZ"` --build-arg VCS_REF=`git rev-parse --short HEAD` -t "${DOCKER_IMAGE}:random" --no-cache --build-arg VERSION=$TAG_VERSION ./random/
-      - run: mkdir ./docker-image
-      - run: docker save "${DOCKER_IMAGE}:random" -o ./docker-image/docker_image.tar
-      - uses: actions/upload-artifact@master
+      - name: Set up Docker Buildx
+        uses: crazy-max/ghaction-docker-buildx@v3
         with:
-          name: docker-image-random
-          path: ./docker-image
-  push-image:
-    name: Push to ${{ matrix.registry }}
-    needs:
-      - build-docker-image
-      - registry-matrix
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        registry: ${{ fromJson(needs.registry-matrix.outputs.registry) }}
-    steps:
-      - uses: actions/download-artifact@master
-        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
-        with:
-          name: docker-image-random
-          path: ./docker-image
-      - run: docker load --input ./docker-image/docker_image.tar
-        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
-      - run: rm -Rf ./docker-image/
-        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
+          buildx-version: latest
+          qemu-version: latest
       - name: Login to ${{ matrix.registry }}
-        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
         run: |
-          echo "${{ env.DOCKER_PASSWORD }}" | \
-          docker login ${{ matrix.registry }} \
-            --username "${{ env.DOCKER_USER }}" \
-            --password-stdin
+          docker login ${{ matrix.registry }} --username $DOCKER_USER --password $DOCKER_PASSWORD
         env:
           DOCKER_USER: ${{ secrets.HUB_USERNAME }}
           DOCKER_PASSWORD: ${{ secrets[fromJson(env.DOCKER_IMAGE_REGISTRIES_SECRET_MAPPING)[matrix.registry]] }}
-      - name: Docker info
-        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
-        run: docker info
-      - name: Echo full tag
-        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
-        run: docker tag ${DOCKER_IMAGE}:random ${{ matrix.registry }}/${DOCKER_IMAGE}:random
-      - name: Echo full tag
-        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
-        run: echo -e "${{ matrix.registry }}/${DOCKER_IMAGE}:random"
-      - name: Push image to Docker Hub
-        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
-        run: docker push "${{ matrix.registry }}/${DOCKER_IMAGE}:random"
+      - run: docker buildx build --platform "linux/amd64,linux/arm64,linux/arm/v7" --push --build-arg BUILD_DATE=`date -u +"%Y-%m-%dT%H:%M:%SZ"` --build-arg VCS_REF=`git rev-parse --short HEAD` -t "${{ matrix.registry }}/${DOCKER_IMAGE}:random" --no-cache --build-arg VERSION=$TAG_VERSION ./random/
