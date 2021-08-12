@@ -4,6 +4,8 @@ env:
   DOCKER_IMAGE_REGISTRIES_SECRET_MAPPING: '{"ghcr.io":"GHCR_TOKEN","docker.io":"HUB_PASSCODE"}'
 on:
   push:
+    branches:
+      - master
   pull_request:
 jobs:
   registry-matrix:
