@@ -3,6 +3,7 @@ env:
   DOCKER_IMAGE: wyrihaximusnet/default-backend
   DOCKER_IMAGE_REGISTRIES_SECRET_MAPPING: '{"ghcr.io":"GHCR_TOKEN","docker.io":"HUB_PASSCODE"}'
 on:
+  push:
   schedule:
     - cron:  '0 * * * *'
 jobs:
@@ -17,6 +18,17 @@ jobs:
         name: Extract registries from registry secret mapping
         run: |
           echo "::set-output name=registry::$(printenv DOCKER_IMAGE_REGISTRIES_SECRET_MAPPING | jq -c 'keys')"
+  supported-arch-matrix:
+    name: Supported processor architectures
+    runs-on: ubuntu-latest
+    outputs:
+      arch: ${{ steps.supported-arch-matrix.outputs.arch }}
+    steps:
+      - uses: actions/checkout@v1
+      - id: supported-arch-matrix
+        name: Generate Arch
+        run: |
+          echo "::set-output name=arch::[\"amd64\",\"arm64\",\"arm\"]"
   lint-dockerfile:
     runs-on: ubuntu-latest
     steps:
@@ -30,27 +42,106 @@ jobs:
     needs:
       - lint-dockerfile
       - registry-matrix
+      - supported-arch-matrix
     strategy:
       matrix:
-        registry: ${{ fromJson(needs.registry-matrix.outputs.registry) }}
+        arch: ${{ fromJson(needs.supported-arch-matrix.outputs.arch) }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v1
       - run: echo "::set-output name=image::$(ls ./images/ | shuf -n 1)"
         id: image
-      - run: sed -i "s/random/${IMAGE}/g" ./random/Dockerfile
+      - run: sed -i "s/random/${IMAGE}-${{ matrix.arch }}/g" ./random/Dockerfile
         env:
           IMAGE: ${{ steps.image.outputs.image }}
       - run: cat ./random/Dockerfile
-      - name: Set up Docker Buildx
-        uses: crazy-max/ghaction-docker-buildx@v3
+      - run: docker image build --platform ${{ matrix.arch }} --build-arg BUILD_DATE=`date -u +"%Y-%m-%dT%H:%M:%SZ"` --build-arg VCS_REF=`git rev-parse --short HEAD` -t "${DOCKER_IMAGE}:random-${{ matrix.arch }}" --no-cache --build-arg VERSION=$TAG_VERSION ./random/
+      - run: mkdir ./docker-image
+      - run: docker save "${DOCKER_IMAGE}:random-${{ matrix.arch }}" -o ./docker-image/docker_image.tar
+      - uses: actions/upload-artifact@master
         with:
-          buildx-version: latest
-          qemu-version: latest
+          name: docker-image-random-${{ matrix.arch }}
+          path: ./docker-image
+  push-image:
+    name: Push ${{ matrix.arch }} to ${{ matrix.registry }}
+    needs:
+      - build-docker-image
+      - registry-matrix
+      - supported-arch-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        registry: ${{ fromJson(needs.registry-matrix.outputs.registry) }}
+        arch: ${{ fromJson(needs.supported-arch-matrix.outputs.arch) }}
+    steps:
+      - uses: actions/download-artifact@master
+        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
+        with:
+          name: docker-image-random-${{ matrix.arch }}
+          path: ./docker-image
+      - run: docker load --input ./docker-image/docker_image.tar
+        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
+      - run: rm -Rf ./docker-image/
+        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
       - name: Login to ${{ matrix.registry }}
+        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
         run: |
-          docker login ${{ matrix.registry }} --username $DOCKER_USER --password $DOCKER_PASSWORD
+          echo "${{ env.DOCKER_PASSWORD }}" | \
+          docker login ${{ matrix.registry }} \
+            --username "${{ env.DOCKER_USER }}" \
+            --password-stdin
         env:
           DOCKER_USER: ${{ secrets.HUB_USERNAME }}
           DOCKER_PASSWORD: ${{ secrets[fromJson(env.DOCKER_IMAGE_REGISTRIES_SECRET_MAPPING)[matrix.registry]] }}
-      - run: docker buildx build --platform "linux/amd64,linux/arm64,linux/arm/v7" --push --build-arg BUILD_DATE=`date -u +"%Y-%m-%dT%H:%M:%SZ"` --build-arg VCS_REF=`git rev-parse --short HEAD` -t "${{ matrix.registry }}/${DOCKER_IMAGE}:random" --no-cache --build-arg VERSION=$TAG_VERSION ./random/
+      - name: Docker info
+        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
+        run: docker info
+      - name: Echo full tag
+        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
+        run: docker tag ${DOCKER_IMAGE}:random-${{ matrix.arch }} ${{ matrix.registry }}/${DOCKER_IMAGE}:random-${{ matrix.arch }}
+      - name: Echo full tag
+        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
+        run: echo -e "${{ matrix.registry }}/${DOCKER_IMAGE}:random-${{ matrix.arch }}"
+      - name: Push image to Docker Hub
+        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
+        run: docker push "${{ matrix.registry }}/${DOCKER_IMAGE}:random-${{ matrix.arch }}"
+  push-manifest:
+    name: Push random manifest to ${{ matrix.registry }}
+    strategy:
+      fail-fast: false
+      matrix:
+        registry: ${{ fromJson(needs.registry-matrix.outputs.registry) }}
+    needs:
+      - push-image
+      - registry-matrix
+      - supported-arch-matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dbhi/qus/action@main
+      - name: Login to ${{ matrix.registry }}
+        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
+        run: |
+          echo "${{ env.DOCKER_PASSWORD }}" | \
+          docker login ${{ matrix.registry }} \
+            --username "${{ env.DOCKER_USER }}" \
+            --password-stdin
+        env:
+          DOCKER_USER: ${{ secrets.HUB_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets[fromJson(env.DOCKER_IMAGE_REGISTRIES_SECRET_MAPPING)[matrix.registry]] }}
+      - name: Docker info
+        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
+        run: docker info
+      - name: Push manifest to Docker Hub
+        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/master'
+        run: |
+          touch command.sh
+          php -r 'file_put_contents("./command.sh", "docker manifest create \"${{ matrix.registry }}/${{ env.DOCKER_IMAGE }}:random\"");'
+          php -r 'foreach (json_decode(getenv("TARGET_ARCHS"), true) as $arch) { file_put_contents("./command.sh", " --amend ${{ matrix.registry }}/${{ env.DOCKER_IMAGE }}:random-" . $arch, \FILE_APPEND); }'
+          chmod +x command.sh
+          cat ./command.sh
+          ./command.sh
+          docker manifest push "${{ matrix.registry }}/${DOCKER_IMAGE}:random"
+        env:
+          TARGET_ARCHS: ${{ needs.supported-arch-matrix.outputs.arch }}
+
