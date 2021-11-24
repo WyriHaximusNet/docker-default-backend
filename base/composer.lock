@@ -901,26 +901,26 @@
         },
         {
             "name": "react-inspector/prometheus-printer",
-            "version": "1.0.0",
+            "version": "1.1.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/reactphp-inspector/prometheus-printer.git",
-                "reference": "51045d4ba68f72f5f69d0f031736df821ecd25f0"
+                "reference": "15cfa3847028058aa37b4b0e83ba1e12373d7c00"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/reactphp-inspector/prometheus-printer/zipball/51045d4ba68f72f5f69d0f031736df821ecd25f0",
-                "reference": "51045d4ba68f72f5f69d0f031736df821ecd25f0",
+                "url": "https://api.github.com/repos/reactphp-inspector/prometheus-printer/zipball/15cfa3847028058aa37b4b0e83ba1e12373d7c00",
+                "reference": "15cfa3847028058aa37b4b0e83ba1e12373d7c00",
                 "shasum": ""
             },
             "require": {
-                "php": "^7.4",
+                "php": "^8 || ^7.4",
                 "react-inspector/metric": "^1.0",
                 "react-inspector/metrics": "^1.0",
                 "react-inspector/printer": "^1.0"
             },
             "require-dev": {
-                "wyrihaximus/async-test-utilities": "^2.0"
+                "wyrihaximus/async-test-utilities": "^4.0.7"
             },
             "type": "library",
             "autoload": {
@@ -942,7 +942,7 @@
             "description": "📜 Metrics Printer in Prometheus format",
             "support": {
                 "issues": "https://github.com/reactphp-inspector/prometheus-printer/issues",
-                "source": "https://github.com/reactphp-inspector/prometheus-printer/tree/1.0.0"
+                "source": "https://github.com/reactphp-inspector/prometheus-printer/tree/1.1.0"
             },
             "funding": [
                 {
@@ -950,7 +950,7 @@
                     "type": "github"
                 }
             ],
-            "time": "2020-03-20T22:41:00+00:00"
+            "time": "2021-11-08T22:49:00+00:00"
         },
         {
             "name": "react-inspector/stream",
