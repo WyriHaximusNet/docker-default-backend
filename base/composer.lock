@@ -1909,26 +1909,26 @@
         },
         {
             "name": "roave/signature",
-            "version": "1.4.0",
+            "version": "1.6.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/Roave/Signature.git",
-                "reference": "5b5bb9499cfbcc78d9f472e03af1e97e4341ec7c"
+                "reference": "ed898589a3088217e6aa4f4a77d7b2b8f5e91a8a"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/Roave/Signature/zipball/5b5bb9499cfbcc78d9f472e03af1e97e4341ec7c",
-                "reference": "5b5bb9499cfbcc78d9f472e03af1e97e4341ec7c",
+                "url": "https://api.github.com/repos/Roave/Signature/zipball/ed898589a3088217e6aa4f4a77d7b2b8f5e91a8a",
+                "reference": "ed898589a3088217e6aa4f4a77d7b2b8f5e91a8a",
                 "shasum": ""
             },
             "require": {
-                "php": "7.4.*|8.0.*"
+                "php": "7.4.*|8.0.*|8.1.*|8.2.*"
             },
             "require-dev": {
-                "doctrine/coding-standard": "^8.2",
-                "infection/infection": "^0.20.2",
-                "phpunit/phpunit": "^9.5.1",
-                "vimeo/psalm": "^4.4"
+                "doctrine/coding-standard": "^10.0.0",
+                "infection/infection": "^0.26.6",
+                "phpunit/phpunit": "^9.5.9",
+                "vimeo/psalm": "^4.27.0"
             },
             "type": "library",
             "autoload": {
@@ -1943,9 +1943,9 @@
             "description": "Sign and verify stuff",
             "support": {
                 "issues": "https://github.com/Roave/Signature/issues",
-                "source": "https://github.com/Roave/Signature/tree/1.4.0"
+                "source": "https://github.com/Roave/Signature/tree/1.6.0"
             },
-            "time": "2021-01-25T09:39:37+00:00"
+            "time": "2022-09-06T11:01:18+00:00"
         },
         {
             "name": "symfony/polyfill-ctype",
@@ -2638,5 +2638,5 @@
         "php": "^7.4"
     },
     "platform-dev": [],
-    "plugin-api-version": "2.1.0"
+    "plugin-api-version": "2.3.0"
 }
